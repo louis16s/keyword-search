@@ -172,7 +172,7 @@ def check_for_updates():
 def show_menu():
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
-        console.print(Panel.fit("[bold cyan]Excel 关键词搜索工具[/bold cyan] v2.0 \n power by louis16s", title="主菜单", subtitle="请选择操作"), justify="center")
+        console.print(Panel.fit("[bold cyan]Excel 关键词搜索工具[/bold cyan] v2.1 \n power by louis16s", title="主菜单", subtitle="请选择操作"), justify="center")
 
         menu_table = Table(show_header=False)
         menu_table.add_row("[bold] 1. [/bold]", "   运行关键词搜索   ")
