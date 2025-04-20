@@ -1,19 +1,32 @@
-# 📊 Excel 关键词搜索工具（Terminal GUI 版）
+# Excel 关键词搜索工具 v2.1
 
-一个支持 `.xls` / `.xlsx` 的关键词批量搜索工具，适用于大批量 Excel 文件搜索，支持终端界面操作、多进程处理、结果导出为 Excel，并具备自动检查更新功能。
+一个终端 GUI 风格的 Excel 批量关键词搜索工具，支持 `.xls` 和 `.xlsx` 文件，支持多进程并行、关键词配置、自动检查更新。
 
-## 🚀 功能特性
+## 🌟 功能特性
 
-- ✅ 批量搜索 Excel 文件中的关键词（支持 .xls / .xlsx）
-- ✅ 使用 `config.ini` 配置搜索路径与关键词表
-- ✅ 多进程并发处理，大幅提高搜索效率
-- ✅ 输出结果为 `搜索结果.xlsx`
-- ✅ 终端界面美观，支持菜单选择操作
-- ✅ 自动检查 GitHub 最新版本更新
+- 支持 `.xlsx` 与 `.xls` 批量搜索
+- 支持多进程加速搜索
+- 支持配置文件修改（关键词Excel、搜索路径）
+- 支持检查 GitHub 最新版本
+- 美观的终端界面（rich 实现）
 
-## 🛠 使用方法
+## 📦 使用方法
 
-### 1. 安装依赖
+1. 安装依赖：
+    ```bash
+    pip install openpyxl xlrd rich tqdm requests
+    ```
 
-```bash
-pip install openpyxl xlrd tqdm rich requests
+2. 运行程序：
+    ```bash
+    python main.py
+    ```
+
+3. 根据提示完成配置与搜索。
+
+## 📁 配置文件示例 `config.ini`
+
+```ini
+[Settings]
+search_directory = ./data
+excel_file_path = ./keywords.xlsx
