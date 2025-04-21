@@ -11,10 +11,12 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
+import shutil
+from packaging import version
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 console = Console()
-VERSION = "2.1"
+VERSION = "2.2"
 REPO_API = "https://api.github.com/repos/louis16s/keyword-search/releases/latest"
 
 
@@ -22,7 +24,7 @@ def read_keywords_from_excel(excel_path):
     keywords = []
     try:
         if excel_path.endswith('.xlsx'):
-            workbook = load_workbook(filename=excel_path, read_only=True)
+            workbook = load_workbook(filename=excel_path, read_only=True, data_only=True)
             sheet = workbook.active
             for row in sheet.iter_rows(min_row=1, max_col=1, values_only=True):
                 keyword = row[0]
@@ -44,26 +46,25 @@ def read_keywords_from_excel(excel_path):
 
 def process_single_file(args):
     file_path, keywords = args
-    results = []
+    matched_rows = []
     try:
+        filename = os.path.basename(file_path)
         if file_path.endswith('.xlsx'):
-            workbook = load_workbook(filename=file_path, read_only=True)
-            for sheet in workbook.worksheets:
-                for row in sheet.iter_rows():
-                    row_data = [cell.value for cell in row if cell.value is not None]
-                    if row_data and any(keyword in str(cell.value) for cell in row for keyword in keywords):
-                        results.append([os.path.basename(file_path)] + row_data)
+            wb = load_workbook(filename=file_path, read_only=True, data_only=True)
+            for sheet in wb.worksheets:
+                for row in sheet.iter_rows(values_only=True):
+                    if row and any(keyword in str(cell) for cell in row if cell for keyword in keywords):
+                        matched_rows.append([filename] + [str(cell) if cell is not None else '' for cell in row])
         elif file_path.endswith('.xls'):
-            workbook = xlrd.open_workbook(file_path)
-            for sheet in workbook.sheets():
+            wb = xlrd.open_workbook(file_path)
+            for sheet in wb.sheets():
                 for row_idx in range(sheet.nrows):
                     row = sheet.row(row_idx)
-                    row_data = [cell.value for cell in row if cell.value != '']
-                    if row_data and any(keyword in str(cell.value) for cell in row for keyword in keywords):
-                        results.append([os.path.basename(file_path)] + row_data)
+                    if any(keyword in str(cell.value) for cell in row for keyword in keywords):
+                        matched_rows.append([filename] + [str(cell.value) for cell in row])
     except Exception as e:
         console.print(f"[red]错误读取文件 {file_path}：{e}[/red]")
-    return results
+    return matched_rows
 
 
 def search_keywords_parallel(keywords, folder_path, output_excel_path):
@@ -71,25 +72,26 @@ def search_keywords_parallel(keywords, folder_path, output_excel_path):
     for root, _, files in os.walk(folder_path):
         for file in files:
             if file.endswith(('.xlsx', '.xls')):
-                file_path = os.path.join(root, file)
-                all_excel_files.append(file_path)
+                all_excel_files.append(os.path.join(root, file))
 
     console.print(Panel(f"共找到 {len(all_excel_files)} 个 Excel 文件，开始搜索...", title="文件加载完毕"), justify="center")
 
+    results = []
     with Pool(processes=cpu_count()) as pool:
-        results = list(tqdm(pool.imap(process_single_file, [(file, keywords) for file in all_excel_files]),
-                            total=len(all_excel_files), desc="搜索中"))
+        for file_result in tqdm(pool.imap_unordered(process_single_file, [(file, keywords) for file in all_excel_files]),
+                                total=len(all_excel_files), desc="搜索中"):
+            if file_result:
+                results.extend(file_result)
 
-    output_workbook = Workbook()
-    output_sheet = output_workbook.active
-    output_sheet.title = "搜索结果"
-    output_sheet.append(["文件名", "数据", "姓名"])
+    output_wb = Workbook()
+    output_ws = output_wb.active
+    output_ws.title = "搜索结果"
+    output_ws.append(["文件名", "匹配行内容"])
 
-    for file_results in results:
-        for row in file_results:
-            output_sheet.append(row)
+    for row in results:
+        output_ws.append(row)
 
-    output_workbook.save(output_excel_path)
+    output_wb.save(output_excel_path)
     console.print(Panel(f"搜索完成！结果已保存至 [green]{output_excel_path}[/green]", title="完成"), justify="center")
     input("\n按回车返回菜单...")
 
@@ -119,10 +121,7 @@ def modify_config():
     config.read('config.ini', encoding='utf-8')
 
     if 'Settings' not in config:
-        config['Settings'] = {
-            'search_directory': '',
-            'excel_file_path': ''
-        }
+        config['Settings'] = {'search_directory': '', 'excel_file_path': ''}
 
     while True:
         settings = list(config['Settings'].items())
@@ -149,7 +148,6 @@ def modify_config():
         console.print("[green]配置修改完成！[/green]\n")
 
 
-
 def check_for_updates():
     console.print("\n[bold cyan]正在检查更新...[/bold cyan]", justify="center")
     try:
@@ -157,9 +155,32 @@ def check_for_updates():
         if response.status_code == 200:
             latest_release = response.json()
             latest_version = latest_release["tag_name"].lstrip("v")
-            if latest_version != VERSION:
-                console.print(Panel(f"发现新版本：v{latest_version}（当前版本：v{VERSION}）\n请访问：https://github.com/louis16s/keyword-search/releases",
-                                    title="更新可用", subtitle="请手动前往下载"), justify="center")
+            download_url = None
+            asset_name = None
+
+            for asset in latest_release.get("assets", []):
+                if asset["name"].endswith(".zip") or asset["name"].endswith(".exe"):
+                    download_url = asset["browser_download_url"]
+                    asset_name = asset["name"]
+                    break
+
+            if version.parse(latest_version) > version.parse(VERSION):
+                console.print(Panel(
+                    f"发现新版本：v{latest_version}（当前版本：v{VERSION}）\n"
+                    f"正在下载更新文件：{asset_name or '未命名'}",
+                    title="更新可用"), justify="center")
+
+                if download_url:
+                    with requests.get(download_url, stream=True) as r:
+                        r.raise_for_status()
+                        with open(asset_name, 'wb') as f:
+                            shutil.copyfileobj(r.raw, f)
+                    console.print(Panel(
+                        f"[green]下载完成！文件已保存为：{asset_name}[/green]\n"
+                        "请手动关闭程序并运行新版本。",
+                        title="更新完成"), justify="center")
+                else:
+                    console.print("[red]未找到有效的下载链接。请手动前往页面下载。[/red]", justify="center")
             else:
                 console.print(Panel("你已经是最新版本啦~", title="暂无更新"), justify="center")
         else:
@@ -172,7 +193,7 @@ def check_for_updates():
 def show_menu():
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
-        console.print(Panel.fit("[bold cyan]Excel 关键词搜索工具[/bold cyan] v2.1 \n power by louis16s", title="主菜单", subtitle="请选择操作"), justify="center")
+        console.print(Panel.fit("[bold cyan]Excel 关键词搜索工具[/bold cyan] " +VERSION+ " \n power by louis16s", title="主菜单", subtitle="请选择操作"), justify="center")
 
         menu_table = Table(show_header=False)
         menu_table.add_row("[bold] 1. [/bold]", "   运行关键词搜索   ")
