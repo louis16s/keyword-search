@@ -11,14 +11,15 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
+from rich.tree import Tree
 import shutil
 from packaging import version
+import subprocess
 
 warnings.filterwarnings("ignore", category=UserWarning, module="openpyxl")
 console = Console()
-VERSION = "2.2"
+VERSION = "2.3"
 REPO_API = "https://api.github.com/repos/louis16s/keyword-search/releases/latest"
-
 
 def read_keywords_from_excel(excel_path):
     keywords = []
@@ -43,7 +44,6 @@ def read_keywords_from_excel(excel_path):
         console.print(f"[red]读取关键词文件失败：{e}[/red]")
     return keywords
 
-
 def process_single_file(args):
     file_path, keywords = args
     matched_rows = []
@@ -66,7 +66,6 @@ def process_single_file(args):
         console.print(f"[red]错误读取文件 {file_path}：{e}[/red]")
     return matched_rows
 
-
 def search_keywords_parallel(keywords, folder_path, output_excel_path):
     all_excel_files = []
     for root, _, files in os.walk(folder_path):
@@ -86,25 +85,20 @@ def search_keywords_parallel(keywords, folder_path, output_excel_path):
     output_wb = Workbook()
     output_ws = output_wb.active
     output_ws.title = "搜索结果"
-    output_ws.append(["文件名", "匹配行内容"])
+    output_ws.append(["文件名", "留空", "留空", "班级", "姓名", "细节", "分值", "类型"])
 
     for row in results:
         output_ws.append(row)
 
     output_wb.save(output_excel_path)
-    console.print(Panel(f"搜索完成！结果已保存至 [green]{output_excel_path}[/green]", title="完成"), justify="center")
+    console.print(Panel(f"搜索完成！结果已保存至 [green]{output_excel_path}[/green] \n 共搜索出 [bold red]{len(results)}[/bold red] 条记录！", title="完成"), justify="center")
     input("\n按回车返回菜单...")
-
 
 def file_path_read():
     config = configparser.ConfigParser()
     if not os.path.exists('config.ini'):
         with open('config.ini', 'w', encoding='utf-8') as file:
-            file.write(
-                '[Settings]\n'
-                'search_directory = 输入你要搜索的文件夹路径\n'
-                'excel_file_path = 输入包含关键词的Excel路径\n'
-            )
+            file.write('[Settings]\nsearch_directory = 输入你要搜索的文件夹路径\nexcel_file_path = 输入包含关键词的Excel路径\n')
         console.print(Panel("[bold yellow]配置文件已创建：config.ini\n请编辑后重新运行本程序。[/bold yellow]", title="初始化完成"), justify="center")
         time.sleep(5)
         exit(0)
@@ -114,7 +108,6 @@ def file_path_read():
     excel_file_path = config['Settings']['excel_file_path'].strip()
     output_excel_path = "搜索结果.xlsx"
     return folder_to_search, excel_file_path, output_excel_path
-
 
 def modify_config():
     config = configparser.ConfigParser()
@@ -147,6 +140,36 @@ def modify_config():
             config.write(f)
         console.print("[green]配置修改完成！[/green]\n")
 
+def show_folder_tree(path, parent_tree=None):
+    if parent_tree is None:
+        parent_tree = Tree(f":open_file_folder: {path}")
+    try:
+        entries = os.listdir(path)
+        for entry in entries:
+            full_path = os.path.join(path, entry)
+            if os.path.isdir(full_path):
+                branch = parent_tree.add(f":file_folder: {entry}")
+                show_folder_tree(full_path, branch)
+            else:
+                parent_tree.add(f":page_facing_up: {entry}")
+    except Exception as e:
+        console.print(f"[red]读取目录失败：{e}[/red]")
+    return parent_tree
+
+def list_pdf_files(folder_path):
+    pdf_files = []
+    for root, _, files in os.walk(folder_path):
+        for file in files:
+            if file.lower().endswith('.pdf'):
+                pdf_files.append(os.path.join(root, file))
+
+    if not pdf_files:
+        console.print("[yellow]没有找到任何PDF文件。[/yellow]")
+    else:
+        console.print("\n[bold green]找到以下PDF文件（Ctrl+点击可打开）：[/bold green]")
+        for pdf in pdf_files:
+            console.print(f"[cyan][link=file://{os.path.abspath(pdf)}]{pdf}[/link][/cyan]")
+    input("\n按回车返回菜单...")
 
 def check_for_updates():
     console.print("\n[bold cyan]正在检查更新...[/bold cyan]", justify="center")
@@ -175,10 +198,15 @@ def check_for_updates():
                         r.raise_for_status()
                         with open(asset_name, 'wb') as f:
                             shutil.copyfileobj(r.raw, f)
-                    console.print(Panel(
-                        f"[green]下载完成！文件已保存为：{asset_name}[/green]\n"
-                        "请手动关闭程序并运行新版本。",
-                        title="更新完成"), justify="center")
+                    console.print(Panel(f"[green]下载完成！文件已保存为：{asset_name}[/green]", title="更新完成"), justify="center")
+
+                    # 下载完成后自动打开
+                    if os.name == 'nt':
+                        os.startfile(asset_name)
+                    else:
+                        subprocess.run(['open', asset_name] if os.uname().sysname == 'Darwin' else ['xdg-open', asset_name])
+
+                    console.print("[bold green]已打开新版本，请手动关闭当前旧版程序。[/bold green]", justify="center")
                 else:
                     console.print("[red]未找到有效的下载链接。请手动前往页面下载。[/red]", justify="center")
             else:
@@ -189,20 +217,21 @@ def check_for_updates():
         console.print(f"[red]更新检查失败：{e}[/red]", justify="center")
     input("\n按回车返回菜单...")
 
-
 def show_menu():
     while True:
         os.system('cls' if os.name == 'nt' else 'clear')
         console.print(Panel.fit("[bold cyan]Excel 关键词搜索工具[/bold cyan] " +VERSION+ " \n power by louis16s", title="主菜单", subtitle="请选择操作"), justify="center")
 
         menu_table = Table(show_header=False)
-        menu_table.add_row("[bold] 1. [/bold]", "   运行关键词搜索   ")
-        menu_table.add_row("[bold] 2. [/bold]", "    修改配置文件    ")
-        menu_table.add_row("[bold] 3. [/bold]", "      检查更新     ")
-        menu_table.add_row("[bold] 4. [/bold]", "      退出程序     ")
+        menu_table.add_row("[bold] 1. [/bold]", "      运行搜索       ")
+        menu_table.add_row("[bold] 2. [/bold]", "    修改配置文件     ")
+        menu_table.add_row("[bold] 3. [/bold]", "    列出PDF文件     ")
+        menu_table.add_row("[bold] 4. [/bold]", "    查看目录结构     ")
+        menu_table.add_row("[bold] 5. [/bold]", "      检查更新      ")
+        menu_table.add_row("[bold] 6. [/bold]", "      退出程序      ")
         console.print(menu_table, justify="center")
 
-        choice = Prompt.ask("\n请输入你的选择", choices=["1", "2", "3", "4"])
+        choice = Prompt.ask("\n请输入你的选择", choices=["1", "2", "3", "4", "5", "6"])
         if choice == "1":
             folder_to_search, excel_file_path, output_excel_path = file_path_read()
             console.print(f"[cyan]正在读取关键词文件：{excel_file_path}[/cyan]", justify="center")
@@ -211,11 +240,18 @@ def show_menu():
         elif choice == "2":
             modify_config()
         elif choice == "3":
-            check_for_updates()
+            folder_to_search, _, _ = file_path_read()
+            list_pdf_files(folder_to_search)
         elif choice == "4":
+            folder_to_search, _, _ = file_path_read()
+            tree = show_folder_tree(folder_to_search)
+            console.print(tree)
+            input("\n按回车返回菜单...")
+        elif choice == "5":
+            check_for_updates()
+        elif choice == "6":
             console.print("\n[bold green]感谢使用，再见！[/bold green]", justify="center")
             break
-
 
 if __name__ == "__main__":
     show_menu()
