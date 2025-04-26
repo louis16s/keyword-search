@@ -14,7 +14,7 @@
 
 1. 安装依赖：
     ```bash
-    pip install openpyxl xlrd rich tqdm requests
+    pip install openpyxl xlrd rich tqdm requests packaging
     ```
 
 2. 运行程序：
@@ -30,3 +30,4 @@
 [Settings]
 search_directory = ./data
 excel_file_path = ./keywords.xlsx
+github_token = token
